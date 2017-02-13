@@ -1,8 +1,9 @@
 #! /usr/bin/env python
 """Produce histograms of FITS header keyword usage
 """
-# EXAMPLE:
+# EXAMPLES:
 #  python3 ./kwhistos.py ~/data  data.pkl
+#  python3 ./kwhistos.py -f fp.out -k kw.out ~/data  data.pkl
 
 
 
