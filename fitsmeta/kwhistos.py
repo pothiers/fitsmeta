@@ -11,11 +11,14 @@ import sys
 import argparse
 import logging
 import glob
+import os
 import os.path
 import pickle
+import sqlite3
 import itertools
 #!import yaml
 import warnings
+import random
 
 import astropy.io.fits as pyfits
 from astropy.utils.exceptions import AstropyWarning
@@ -87,22 +90,47 @@ def kw_fingerprints(topdir, progfcnt=100):
     perc = [(k,v/float(fcnt)) for k,v in cnt.items()]
     pprint(sorted(perc,  key=lambda x: x[1], reverse=True))
 
-def kw_use(topdir, picklefile, progfcnt=10, kwfile=None, fpfile=None):
+# WARNING: this version does not save DB if aborted during run
+def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
     """Collect several counts at once"""
-    kwcnt = Counter() # count keywords
-    fpcnt = Counter() # count finger prints (unique set of keywords in one file)
-    fcnt=0
-    fps = dict()
-    all = dict()
-    warnings.simplefilter('ignore', category=AstropyWarning)
-    for fname in fits_iter(topdir):
-        fcnt += 1
-        if (fcnt % progfcnt) == 0:
-            print('# processed {} files'.format(fcnt))
-        kws = kw_set(fname)
-        kwcnt.update(kws)
-        fpcnt[kws] += 1
-        all[fname] = kws
+    os.remove(db)
+    con = sqlite3.connect(db)
+    with con:
+        con.executescript("""
+        create table kwcount(kw primary key, count);
+        create table fpfile(fpid primary key, filename);
+        create table fingerprint(fpid primary key, kw);
+    """)
+        # FP:: finger print (SET of keywords in one file)
+        kwcnt = Counter() # kwcnt[kw]=count 
+        fpcnt = Counter() # fpcnt[fpid]=count 
+        fpids = dict()    # fpids[kws] = (fpid, fname)
+
+        fcnt=0
+        fps = dict()
+        #all = dict()
+        warnings.simplefilter('ignore', category=AstropyWarning)
+        allfits = [f for f in fits_iter(topdir)]
+        random.shuffle(allfits)
+        for fname in allfits:
+            fcnt += 1
+            kws = kw_set(fname)
+            kwcnt.update(kws)
+            fpcnt[kws] += 1
+            fpids.setdefault(kws, ('fp-{}'.format(fcnt), fname))
+
+            if (fcnt % progfcnt) == 0:
+                print('# processed {} files'.format(fcnt))
+                con.executemany('INSERT OR REPLACE INTO kwcount (kw, count) VALUES (?,?)',
+                                kwcnt.items())
+                con.executemany('INSERT OR REPLACE INTO fpfile (fpid, filename) VALUES (?,?)',
+                                [fpids[fp] for fp in fpids.keys()])
+                fpid_kw_list = list()
+                for fp in fpids.keys():
+                    for k in fp:
+                        fpid_kw_list.append((fpids[fp][0], k))
+                con.executemany('INSERT OR REPLACE INTO fingerprint (fpid, kw) VALUES (?,?)',
+                                fpid_kw_list)
 
     print('Processed {} FITS files.'.format(fcnt))
 
@@ -116,11 +144,48 @@ def kw_use(topdir, picklefile, progfcnt=10, kwfile=None, fpfile=None):
     pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
            stream=kwfile)
 
-    print('Save kw set (union over HDU) from each file into: {}'
-          .format(picklefile))
-    with open(picklefile, 'wb') as pf:
-        pickle.dump(all, pf)
+    #!print('Save kw set (union over HDU) from each file into: {}'
+    #!      .format(picklefile))
+    #!with open(picklefile, 'wb') as pf:
+    #!    pickle.dump(all, pf)
 
+def gdbm_kw_use(topdir, dbfile, progfcnt=10, kwfile=None, fpfile=None):
+    """Collect several counts at once"""
+    
+    with dbm.gnu.open(dbfile,'c') as db:
+        # FP:: finger print (SET of keywords in one file)
+        kwcnt = Counter() # kwcnt[kw]=count
+        fpcnt = Counter() # fpcnt[fpid]=count
+        fpkws = dict()    # fpkws[fpid] = set([kw, ...]) # value:: kws
+        fpfiles = dict()  # fpfiles[fpid] = [fname, ...]
+        fpids = dict()    # fpids[kws] = fpid
+
+        fcnt = 0
+        allfits = [f for f in fits_iter(topdir)]
+        random.shuffle(allfits)
+        warnings.simplefilter('ignore', category=AstropyWarning)
+        for fname in allfits:
+            fcnt += 1
+            kws = kw_set(fname)
+            kwcnt.update(kws)
+            fpcnt[kws] += 1
+            fpids.setdefault(kws, ('fp-{}'.format(fcnt), fname))
+
+            if (fcnt % progfcnt) == 0:
+                print('# processed {} files'.format(fcnt))
+
+    print('Processed {} FITS files.'.format(fcnt))
+
+    print('Unique kw Finger Print percent usage: (fp-<numFields>)')
+    perc = [('fp-{}'.format(len(k)),v/float(fcnt)) for k,v in fpcnt.items()]
+    pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
+           stream=fpfile)
+
+    print('Field percent usage:')
+    perc = [(k,v/float(fcnt)) for k,v in kwcnt.items()]
+    pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
+           stream=kwfile)
+    
     
 def kw_list_list(fitsfname):
     """Return list (file) of list (hdu) of keywords"""
@@ -162,8 +227,8 @@ def main():
     parser.add_argument('--version', action='version', version='1.0.1')
     parser.add_argument('fitsdir',
                         help='Path to dir tree containing FITS files')
-    parser.add_argument('picklefile',
-                        help='Save kw lists in this pickle file.')
+    parser.add_argument('sqlitedb',
+                        help='Save results sqlite3 DB file.')
     parser.add_argument('-k', '--kwcounts',
                         type=argparse.FileType('w'),
                         help='Number of files kw used in.')
@@ -188,7 +253,7 @@ def main():
     #kw_histo(args.fitsdir)
     #kw_fingerprints(args.fitsdir)
     #kw_save(args.fitsdir, 'meta.pickle')
-    kw_use(args.fitsdir, args.picklefile,
+    kw_use(args.fitsdir, args.sqlitedb,
            kwfile=args.kwcounts,
            fpfile=args.fpcounts )
 
