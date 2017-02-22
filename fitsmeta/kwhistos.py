@@ -2,8 +2,8 @@
 """Produce histograms of FITS header keyword usage."""
 
 # EXAMPLES:
-#  python3 ./kwhistos.py ~/data  data.db
-#  python3 ./kwhistos.py -f fp.out -k kw.out ~/data  data.db
+#  python3 ./kwhistos.py ~/data data.db
+#  python3 ./kwhistos.py /net/archive/mtn all-mtn.kwhistos.db
 #
 # sqlite3 -header -column data.db 'select * from kwcount order by count' | tail
 # sqlite3 -header -column data.db 'select * from fingerprint order by fpid'
@@ -29,7 +29,7 @@ import random
 
 import astropy.io.fits as pyfits
 from astropy.utils.exceptions import AstropyWarning
-from collections import Counter
+from collections import Counter, defaultdict
 from pprint import pprint
 
 def kw_set(fitsfname):
@@ -95,21 +95,35 @@ def kw_fingerprints(topdir, progfcnt=100):
     perc = [(k,v/float(fcnt)) for k,v in cnt.items()]
     pprint(sorted(perc,  key=lambda x: x[1], reverse=True))
 
+make_db_sql = """    
+CREATE TABLE kwcount(
+        kw TEXT PRIMARY KEY,
+        count INTEGER
+        );
+CREATE TABLE fpfile(
+        filename TEXT PRIMARY KEY,
+        fpid TEXT
+        );
+CREATE TABLE fingerprint(
+        kw TEXT,
+        fpid TEXT,
+        PRIMARY KEY (kw, fpid)
+        );
+"""
+    
 def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
     """Collect several counts at once"""
     if os.path.exists(db):
         os.remove(db)
     con = sqlite3.connect(db)
+    badfits = set()
     with con:
-        con.executescript("""
-        create table kwcount(kw primary key, count);
-        create table fpfile(filename primary key, fpid);
-        create table fingerprint(kw primary key, fpid);
-    """)
+        con.executescript(make_db_sql)
         # FP:: finger print (SET of keywords in one file)
         kwcnt = Counter() # kwcnt[kw]=count (accume over all files)
         fpcnt = Counter() # fpcnt[fpid]=count 
-        fpids = dict()    # fpids[kws] = (fpid, fname)
+        fpids = dict()    # fpids[kws] = fpid
+        #!fnames = defaultdict(list)   # fpids[kws] = [fname,...]
 
         fcnt=0
         fps = dict()
@@ -119,9 +133,12 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
         random.shuffle(allfits)
         for fname in allfits:
             kws = kw_set(fname)
+            if len(kws) == 0:
+                badfits.add(fname)
+                continue
             fcnt += 1
-            fpids.setdefault(kws, ('fp-{:07d}'.format(fcnt), fname))
-            fpid = fpids[kws][0]
+            #!fnames[kws].append(fname)
+            fpid = fpids.setdefault(kws, 'fp-{:07d}'.format(fcnt))
             # add counts for this file
             kwcnt.update(kws)  # count keyword use over ALL files
             fpcnt[fpid] += 1   # count fingerprint use of ALL files
@@ -130,18 +147,20 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
             con.executemany('INSERT OR REPLACE INTO'
                             ' kwcount (kw, count) VALUES (?,?)',
                             [(kw,kwcnt[kw]) for kw in kws])
-            con.execute('INSERT OR REPLACE INTO'
-                        ' fpfile (fpid, filename) VALUES (?,?)',
-                        (fpid, fname))
             con.executemany('INSERT OR REPLACE INTO'
-                            ' fingerprint (fpid, kw) VALUES (?,?)',
-                            [(fpid, kw) for kw in kws])
+                            ' fingerprint (kw, fpid) VALUES (?,?)',
+                            [(kw, fpid) for kw in kws])
+            con.execute('INSERT OR REPLACE INTO'
+                        ' fpfile (filename, fpid) VALUES (?,?)',
+                        (fname, fpid))
             con.commit()
             
             if (fcnt % progfcnt) == 0:
                 print('# processed {} files'.format(fcnt))
 
     print('Processed {} FITS files.'.format(fcnt))
+    print('({}) Invalid FITS files encountered: \n\t{}'
+          .format(len(badfits), '\n\t'.join(badfits)))
 
     #!print('Unique kw Finger Print percent usage: (fp-<numFields>)')
     #!perc = [('fp-{}'.format(len(k)),v/float(fcnt)) for k,v in fpcnt.items()]
