@@ -13,6 +13,8 @@
 # fcnt2=`sqlite3 data.db 'select count(filename) from fpfile'`
 # echo "$fcnt1 == $fcnt2 ?"  # SHOULD be equal
 
+# TODO:
+#  continuos random pick of subset of files (more accuracy the longer it runs)
 
 
 import sys
@@ -27,7 +29,7 @@ import itertools
 import warnings
 import random
 import time
-import dbm
+import dbm.gnu as gdbm
 
 import astropy.io.fits as pyfits
 from astropy.utils.exceptions import AstropyWarning
@@ -63,11 +65,36 @@ def fits_iter(topdir):
     return(itertools.chain(glob.iglob(gfz, recursive=True),
                            glob.iglob(gfits, recursive=True)))
 
-def file_dblist(topdir, dbmfile='kwhistos.dbm'):
-    with dbm.open(dbmfile,'n') as db:
+def save_dblist(topdir, dbmfile):
+    idx = 0
+    with gdbm.open(dbmfile,'nf') as db:
         for fname in fits_iter(topdir):
-            db[fname] = 1
+            db[str(idx)] = fname
+            idx += 1
+    return idx
         
+def rand_fits_iter(topdir, dbmfile='kwhistos.dbm', seed=None):
+    save_dblist(topdir, dbmfile)
+    random.seed(seed)
+    with gdbm.open(dbmfile,'w') as db:
+        print('Loaded dbmfile ({}) with {} filenames'.format(dbmfile, len(db)))
+        while len(db) > 0:
+            idx = random.choice(db.keys())
+            fname = db[idx].decode()
+            #!print('DBG-1: db[{}]={}'.format(idx, fname))
+            del db[idx]
+            yield fname
+
+def rand_dbm_iter(dbmfile, seed=None):
+    random.seed(seed)
+    with gdbm.open(dbmfile,'w') as db:
+        print('Loaded dbmfile ({}) with {} keys'.format(dbmfile, len(db)))
+        while len(db) > 0:
+            key = random.choice(db.keys())
+            val = db[key].decode()
+            del db[key]
+            yield val
+            
 
 # speed: 15.919s(real, chimp)/468 local files
 # speed: 7.775
@@ -182,70 +209,65 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
     print('({}) Invalid FITS files encountered: \n\t{}'
           .format(len(badfits), '\n\t'.join(badfits)))
 
-
-# UNDER CONSTRUCTION
-def gdbm_kw_use(topdir, dbfile, progfcnt=10, kwfile=None, fpfile=None):
-    """Collect several counts at once"""
-    
-    with dbm.gnu.open(dbfile,'c') as db:
+def kw_use_dbm(topdir, db, progfcnt=10, dbmfile='kwhistos.dbm'):
+    """Collect several counts at once. Random FITS select. Save in DB"""
+    if os.path.exists(db):
+        os.remove(db)
+    con = sqlite3.connect(db)
+    badfits = set()
+    with con:
+        con.executescript(make_db_sql)
         # FP:: finger print (SET of keywords in one file)
-        kwcnt = Counter() # kwcnt[kw]=count
-        fpcnt = Counter() # fpcnt[fpid]=count
-        fpkws = dict()    # fpkws[fpid] = set([kw, ...]) # value:: kws
-        fpfiles = dict()  # fpfiles[fpid] = [fname, ...]
+        kwcnt = Counter() # kwcnt[kw]=count (accume over all files)
+        fpcnt = Counter() # fpcnt[fpid]=count 
         fpids = dict()    # fpids[kws] = fpid
+        #!fnames = defaultdict(list)   # fpids[kws] = [fname,...]
 
-        fcnt = 0
-        allfits = [f for f in fits_iter(topdir)]
-        random.shuffle(allfits)
+        fps = dict()
+        #all = dict()
         warnings.simplefilter('ignore', category=AstropyWarning)
-        for fname in allfits:
-            fcnt += 1
-            kws = kw_set(fname)
-            kwcnt.update(kws)
-            fpcnt[kws] += 1
-            fpids.setdefault(kws, ('fp-{}'.format(fcnt), fname))
 
+        print('# COLLECT filenames')
+        tic()
+        numfits = save_dblist(topdir, dbmfile)
+        print('# COLLECTED {} files in {:.0f} seconds.'.format(numfits, toc()))
+
+        print('PROCESS filenames')
+        tic()
+        fcnt=0
+        for fname in rand_dbm_iter(dbmfile):
+            kws = kw_set(fname)
+            if len(kws) == 0:
+                badfits.add(fname)
+                continue
+            fcnt += 1
+            #!fnames[kws].append(fname)
+            fpid = fpids.setdefault(kws, 'fp-{:07d}'.format(fcnt))
+            # add counts for this file
+            kwcnt.update(kws)  # count keyword use over ALL files
+            fpcnt[fpid] += 1   # count fingerprint use of ALL files
+
+            # Update DB with keyword occurances for this file
+            con.executemany('INSERT OR REPLACE INTO'
+                            ' kwcount (kw, count) VALUES (?,?)',
+                            [(kw,kwcnt[kw]) for kw in kws])
+            con.executemany('INSERT OR REPLACE INTO'
+                            ' fingerprint (kw, fpid) VALUES (?,?)',
+                            [(kw, fpid) for kw in kws])
+            con.execute('INSERT OR REPLACE INTO'
+                        ' fpfile (filename, fpid) VALUES (?,?)',
+                        (fname, fpid))
+            con.commit()
+            
             if (fcnt % progfcnt) == 0:
-                print('# processed {} files'.format(fcnt))
+                print('# processed {} files in {:.0f} seconds.'
+                      .format(fcnt, toc()))
 
     print('Processed {} FITS files.'.format(fcnt))
+    print('({}) Invalid FITS files encountered: \n\t{}'
+          .format(len(badfits), '\n\t'.join(badfits)))
 
-    print('Unique kw Finger Print percent usage: (fp-<numFields>)')
-    perc = [('fp-{}'.format(len(k)),v/float(fcnt)) for k,v in fpcnt.items()]
-    pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
-           stream=fpfile)
 
-    print('Field percent usage:')
-    perc = [(k,v/float(fcnt)) for k,v in kwcnt.items()]
-    pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
-           stream=kwfile)
-    
-    
-def kw_list_list(fitsfname):
-    """Return list (file) of list (hdu) of keywords"""
-    kws = list()
-    hdulist = pyfits.open(fitsfname)
-    for hdu in hdulist:
-        kws.append(list(hdu.header.keys()))
-    hdulist.close()
-    return kws
-
-def kw_save(topdir, picklefile, progfcnt=100):
-    """Save lists keywords (per file, per HDU) in all FITS under TOPDIR"""
-    fcnt=0
-    kwll = list()
-
-    for fname in fits_iter(topdir):
-        fcnt += 1
-        if (fcnt % progfcnt) == 0:
-            print('# processed {} files'.format(fcnt))
-        kwll.append(kw_list_list(fname))
-    #!pprint(kwll)
-    with open(picklefile, 'wb') as pf:
-        pickle.dump(kwll, pf)
-    print('Wrote pickle file: {}'.format(picklefile))
-    print('for {} files:'.format(fcnt))
     
 ##############################################################################
 
@@ -284,9 +306,14 @@ def main():
     #kw_histo(args.fitsdir)
     #kw_fingerprints(args.fitsdir)
     #kw_save(args.fitsdir, 'meta.pickle')
-    kw_use(args.fitsdir, args.sqlitedb,
-           kwfile=args.kwcounts,
-           fpfile=args.fpcounts )
+
+    #!kw_use(args.fitsdir, args.sqlitedb,
+    #!       kwfile=args.kwcounts,
+    #!       fpfile=args.fpcounts )
+
+    kw_use_dbm(args.fitsdir, args.sqlitedb)
+    #!for fitsname in rand_fits_iter(args.fitsdir):
+    #!    print('filename={}'.format(fitsname))
 
 
 if __name__ == '__main__':
