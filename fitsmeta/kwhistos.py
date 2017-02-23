@@ -65,7 +65,7 @@ def fits_iter(topdir):
     return(itertools.chain(glob.iglob(gfz, recursive=True),
                            glob.iglob(gfits, recursive=True)))
 
-def save_dblist(topdir, dbmfile, progcnt=1000):
+def save_dblist(topdir, dbmfile, progcnt=1E4):
     idx = 0
     tic()
     with gdbm.open(dbmfile,'nf') as db:
