@@ -26,11 +26,21 @@ import sqlite3
 import itertools
 import warnings
 import random
+import time
+import dbm
 
 import astropy.io.fits as pyfits
 from astropy.utils.exceptions import AstropyWarning
 from collections import Counter, defaultdict
 from pprint import pprint
+
+def tic():
+    tic.start = time.perf_counter()
+
+def toc():
+    elapsed_seconds = time.perf_counter() - tic.start
+    return elapsed_seconds # fractional
+
 
 def kw_set(fitsfname):
     # keywords that may have duplicates (we don't care about them)
@@ -53,6 +63,11 @@ def fits_iter(topdir):
     return(itertools.chain(glob.iglob(gfz, recursive=True),
                            glob.iglob(gfits, recursive=True)))
 
+def file_dblist(topdir, dbmfile='kwhistos.dbm'):
+    with dbm.open(dbmfile,'n') as db:
+        for fname in fits_iter(topdir):
+            db[fname] = 1
+        
 
 # speed: 15.919s(real, chimp)/468 local files
 # speed: 7.775
@@ -129,8 +144,12 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
         fps = dict()
         #all = dict()
         warnings.simplefilter('ignore', category=AstropyWarning)
-        allfits = [f for f in fits_iter(topdir)]
+        print('COLLECT filenames')
+        allfits = list(fits_iter(topdir))
+        print('SHUFFLE {} filenames'.format(len(allfits)))
         random.shuffle(allfits)
+        print('PROCESS filenames')
+        tic()
         for fname in allfits:
             kws = kw_set(fname)
             if len(kws) == 0:
@@ -156,23 +175,15 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
             con.commit()
             
             if (fcnt % progfcnt) == 0:
-                print('# processed {} files'.format(fcnt))
+                print('# processed {} files in {:.0f} seconds.'
+                      .format(fcnt, toc()))
 
     print('Processed {} FITS files.'.format(fcnt))
     print('({}) Invalid FITS files encountered: \n\t{}'
           .format(len(badfits), '\n\t'.join(badfits)))
 
-    #!print('Unique kw Finger Print percent usage: (fp-<numFields>)')
-    #!perc = [('fp-{}'.format(len(k)),v/float(fcnt)) for k,v in fpcnt.items()]
-    #!pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
-    #!       stream=fpfile)
-    #!
-    #!print('Field percent usage:')
-    #!perc = [(k,v/float(fcnt)) for k,v in kwcnt.items()]
-    #!pprint(sorted(perc,  key=lambda x: x[1], reverse=True),
-    #!       stream=kwfile)
 
-
+# UNDER CONSTRUCTION
 def gdbm_kw_use(topdir, dbfile, progfcnt=10, kwfile=None, fpfile=None):
     """Collect several counts at once"""
     
