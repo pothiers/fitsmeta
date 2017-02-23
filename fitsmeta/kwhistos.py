@@ -80,7 +80,7 @@ def save_dblist(topdir, dbmfile,
                 remhrs = ((secs * expectedcnt / idx) - secs) / 60 / 60
                 print('# Saved {:,} to dbm in {:,.0f} secs. Remain hrs: {}'
                       .format(idx, secs, remhrs))
-
+    save_dblist.count = idx
     return idx
         
 def rand_fits_iter(topdir, dbmfile='kwhistos.dbm', seed=None):
@@ -243,6 +243,7 @@ def kw_use_dbm(topdir, db,
         print('# COLLECT filenames')
         tic()
         numfits = save_dblist(topdir, dbmfile)
+        expectedcnt = save_dblist.count
         print('# COLLECTED {} files in {:.0f} seconds.'.format(numfits, toc()))
 
         print('PROCESS filenames')
