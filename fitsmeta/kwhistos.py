@@ -66,8 +66,8 @@ def fits_iter(topdir):
                            glob.iglob(gfits, recursive=True)))
 
 def save_dblist(topdir, dbmfile,
-                #progcnt=1E4,
-                progcnt=10,
+                progcnt=1E4,
+                #progcnt=10,
                 expectedcnt = 84E5):
     idx = 0
     tic()
@@ -220,7 +220,8 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
           .format(len(badfits), '\n\t'.join(badfits)))
 
 def kw_use_dbm(topdir, db,
-               progfcnt=10,
+               #progcnt=1E4,
+               progcnt=1E3,
                dbmfile='kwhistos.dbm',
                expectedcnt = 84E5):
     """Collect several counts at once. Random FITS select. Save in DB"""
@@ -273,7 +274,7 @@ def kw_use_dbm(topdir, db,
                         (fname, fpid))
             con.commit()
             
-            if (fcnt % progfcnt) == 0:
+            if (fcnt % progcnt) == 0:
                 secs = toc()
                 remhrs = ((secs * expectedcnt / fcnt) - secs) / 60 / 60
                 print('# processed {} files in {:,.0f} secs. Remain hrs: {}'
