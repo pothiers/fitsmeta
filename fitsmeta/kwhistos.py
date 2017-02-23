@@ -65,12 +65,14 @@ def fits_iter(topdir):
     return(itertools.chain(glob.iglob(gfz, recursive=True),
                            glob.iglob(gfits, recursive=True)))
 
-def save_dblist(topdir, dbmfile):
+def save_dblist(topdir, dbmfile, progcnt=1000):
     idx = 0
     with gdbm.open(dbmfile,'nf') as db:
         for fname in fits_iter(topdir):
             db[str(idx)] = fname
             idx += 1
+            if (progcnt != None) and (idx % progcnt) == 0:
+                print('# Saved {} files to dbm'.format(idx))
     return idx
         
 def rand_fits_iter(topdir, dbmfile='kwhistos.dbm', seed=None):
