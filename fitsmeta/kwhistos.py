@@ -221,7 +221,7 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
 
 def kw_use_dbm(topdir, db,
                #progcnt=1E4,
-               progcnt=1E3,
+               progcnt=1E2,
                dbmfile='kwhistos.dbm',
                expectedcnt = 84E5):
     """Collect several counts at once. Random FITS select. Save in DB"""
