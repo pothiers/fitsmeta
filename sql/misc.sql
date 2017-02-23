@@ -7,14 +7,19 @@ CREATE TABLE fpfile(
         fpid TEXT,
         );
 CREATE TABLE fingerprint(
-        kw TEXT PRIMARY KEY,
+        kw TEXT,
         fpid TEXT,
+        PRIMARY KEY (kw, fpid),
         );
 
 -- sqlite3 -header -column data.db
-SELECT * FROM kwcount ORDER BY count
-SELECT * FROM fingerprint ORDER BY fpid
-SELECT * FROM fpfile ORDER BY fpid
+SELECT * FROM kwcount ORDER BY count;
+SELECT * FROM fingerprint ORDER BY fpid;
+SELECT * FROM fpfile ORDER BY fpid;
 
-
-
+-- These two should return same count
+-- chimp:~/data
+SELECT count(distinct fpid) FROM fpfile ORDER BY fpid;
+-- => 35
+SELECT count(distinct fpid) FROM fingerprint ORDER BY fpid;
+-- => 35

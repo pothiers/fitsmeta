@@ -65,7 +65,10 @@ def fits_iter(topdir):
     return(itertools.chain(glob.iglob(gfz, recursive=True),
                            glob.iglob(gfits, recursive=True)))
 
-def save_dblist(topdir, dbmfile, progcnt=1E4):
+def save_dblist(topdir, dbmfile,
+                #progcnt=1E4,
+                progcnt=10,
+                expectedcnt = 84E5):
     idx = 0
     tic()
     with gdbm.open(dbmfile,'nf') as db:
@@ -73,8 +76,10 @@ def save_dblist(topdir, dbmfile, progcnt=1E4):
             db[str(idx)] = fname
             idx += 1
             if (progcnt != None) and (idx % progcnt) == 0:
-                print('# Saved {} files to dbm in {:.0f} seconds'
-                      .format(idx, toc()))
+                secs = toc()
+                remhrs = ((secs * expectedcnt / idx) - secs) / 60 / 60
+                print('# Saved {:,} to dbm in {:,.0f} secs. Remain hrs: {}'
+                      .format(idx, secs, remhrs))
 
     return idx
         
@@ -214,7 +219,10 @@ def kw_use(topdir, db, progfcnt=10, kwfile=None, fpfile=None):
     print('({}) Invalid FITS files encountered: \n\t{}'
           .format(len(badfits), '\n\t'.join(badfits)))
 
-def kw_use_dbm(topdir, db, progfcnt=10, dbmfile='kwhistos.dbm'):
+def kw_use_dbm(topdir, db,
+               progfcnt=10,
+               dbmfile='kwhistos.dbm',
+               expectedcnt = 84E5):
     """Collect several counts at once. Random FITS select. Save in DB"""
     if os.path.exists(db):
         os.remove(db)
@@ -265,8 +273,11 @@ def kw_use_dbm(topdir, db, progfcnt=10, dbmfile='kwhistos.dbm'):
             con.commit()
             
             if (fcnt % progfcnt) == 0:
-                print('# processed {} files in {:.0f} seconds.'
-                      .format(fcnt, toc()))
+                secs = toc()
+                remhrs = ((secs * expectedcnt / fcnt) - secs) / 60 / 60
+                print('# processed {} files in {:,.0f} secs. Remain hrs: {}'
+                      .format(fcnt, secs, remhrs))
+
 
     print('Processed {} FITS files.'.format(fcnt))
     print('({}) Invalid FITS files encountered: \n\t{}'
