@@ -245,7 +245,8 @@ def kw_use_dbm(topdir, db,
         tic()
         numfits = save_dblist(topdir, dbmfile)
         expectedcnt = save_dblist.count
-        print('# COLLECTED {} files in {:.0f} seconds.'.format(numfits, toc()))
+        print('# COLLECTED {} files in {:.0f} seconds. ExpectedCnt={}'
+              .format(numfits, toc(), expectedcnt))
 
         print('PROCESS filenames')
         tic()
