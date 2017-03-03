@@ -23,3 +23,13 @@ SELECT count(distinct fpid) FROM fpfile ORDER BY fpid;
 -- => 35
 SELECT count(distinct fpid) FROM fingerprint ORDER BY fpid;
 -- => 35
+
+SELECT COUNT(filename) FROM fpfile;
+-- max value for kwcount.count
+
+-- sqlite3
+    .schema
+    .header ON
+    .mode column
+
+-- sqlite ~/data/kwhistos/all-mtn.kwhistos.db
